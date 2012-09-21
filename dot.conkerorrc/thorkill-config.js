@@ -8,7 +8,7 @@ require("new-tabs.js");
 require("clicks-in-new-buffer.js");
 
 url_completion_use_history = true;
-url_completion_use_bookmarks = false;
+url_completion_use_bookmarks = true;
 can_kill_last_buffer = true;
 download_buffer_automatic_open_target = OPEN_NEW_BUFFER_BACKGROUND;
 
