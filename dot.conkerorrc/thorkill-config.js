@@ -143,3 +143,34 @@ interactive("org-remember", "Remember the current url with org-remember",
 function (I) {
   org_remember(I.buffer.display_URI_string, I.window);
 });
+
+
+/**
+ * content_policy_status_widget shows if the content policy is enabled.
+ */
+function content_policy_status_widget (window) {
+    this.class_name = "content-policy-status-widget";
+    text_widget.call(this, window);
+    // Update only if something happens ...
+    this.add_hook("select_buffer_hook");
+    this.add_hook("create_buffer_hook");
+    this.add_hook("kill_buffer_hook");
+    this.add_hook("move_buffer_hook");
+    this.add_hook("current_content_buffer_location_change_hook");
+    this.add_hook("current_content_buffer_focus_change_hook");
+    this.add_hook("current_special_buffer_generated_hook");
+}
+
+content_policy_status_widget.prototype = {
+    constructor: content_policy_status_widget,
+    __proto__: text_widget.prototype,
+    update: function () {
+        if (content_policy_listener.enabled)
+            this.view.text = ("[+]");
+        else
+            this.view.text = ("[-]");
+    }
+};
+
+add_hook("mode_line_hook", mode_line_adder(content_policy_status_widget));
+
