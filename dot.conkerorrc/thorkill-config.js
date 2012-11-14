@@ -173,4 +173,3 @@ content_policy_status_widget.prototype = {
 };
 
 add_hook("mode_line_hook", mode_line_adder(content_policy_status_widget));
-
