@@ -12,7 +12,7 @@ url_completion_use_bookmarks = true;
 can_kill_last_buffer = true;
 download_buffer_automatic_open_target = OPEN_NEW_BUFFER_BACKGROUND;
 
-editor_shell_command = "urxvt -e emacs -nw --no-desktop";
+editor_shell_command = "emacsclient";
 url_remoting_fn = load_url_in_new_buffer;
 open_download_buffer_automatically = OPEN_NEW_BUFFER;
 
@@ -70,6 +70,7 @@ function block_script (content_type, content_location) {
                     "wetter.com": Y,
                     "doodle.com": Y,
                     "duckduckgo.com": Y,
+                    "elearning.uni-hannover.de": Y,
                     "builder.duckduckgo.com": Y,}
                   [content_location.host] || N);
 
