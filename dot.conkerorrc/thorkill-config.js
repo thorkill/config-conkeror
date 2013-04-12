@@ -70,6 +70,7 @@ function block_script (content_type, content_location) {
                     "wetter.com": Y,
                     "doodle.com": Y,
                     "duckduckgo.com": Y,
+                    "github.com": Y,
                     "elearning.uni-hannover.de": Y,
                     "builder.duckduckgo.com": Y,}
                   [content_location.host] || N);
