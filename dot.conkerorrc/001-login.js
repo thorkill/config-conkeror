@@ -22,11 +22,11 @@ session_pref("signon.rememberSignons", true);
 session_pref("signon.expireMasterPassword", false);
 session_pref("signon.SignonFileName", "signons.txt");
 session_pref("signon.useDOMFormHasPassword", true);
-session_pref("browser.formfill.debug", true);
 
 Cc["@mozilla.org/login-manager;1"].getService(Ci.nsILoginManager);
 
 /* debugging prefs */
+//session_pref("browser.formfill.debug", false);
 //session_pref("browser.dom.window.dump.enabled", true);
 //session_pref("javascript.options.showInConsole", true);
 //session_pref("javascript.options.strict", true);
@@ -49,9 +49,12 @@ add_hook("create_buffer_hook", function (buffer) {
 });
 
 add_hook("content_buffer_dom_form_has_password_hook", function(buffer, event) {
-    LoginManagerContent.onFormPassword(event);
-    });
+    // Sometimes onFormPassword is undefined
+    if (LoginManagerContent.onFormPassword) {
+        LoginManagerContent.onFormPassword(event);
+    }
+});
 
 add_hook("content_buffer_dom_auto_complete_hook", function(buffer, event) {
-    LoginManagerContent.onUsernameInput(event);
-    });
+        LoginManagerContent.onUsernameInput(event);
+});
