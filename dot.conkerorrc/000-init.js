@@ -112,10 +112,6 @@ content_policy_bytype_table.object = block_flash;
 
 add_hook("content_policy_hook", content_policy_bytype);
 
-// passwords
-session_pref("signon.rememberSignons", true);
-session_pref("signon.expireMasterPassword", false);
-session_pref("signon.SignonFileName", "signons.txt");
 // cookies
 session_pref("network.cookie.lifetimePolicy", 1);
 session_pref("network.cookie.cookieBehavior", 1);
@@ -129,8 +125,6 @@ function history_clear () {
 interactive("history-clear",
             "Clear the history.",
             history_clear);
-
-Cc["@mozilla.org/login-manager;1"].getService(Ci.nsILoginManager); // init
 
 function org_remember(url, window) {
     var cmd_str = 'emacsclient -c --eval \'(th-org-remember-conkeror "' + url + '")\'';
