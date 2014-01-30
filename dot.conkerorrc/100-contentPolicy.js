@@ -6,8 +6,7 @@
   BSD License
 */
 
-require("debug.js");
-require("content-policy");
+require("content-policy.js");
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 Components.utils.import("resource://gre/modules/FileUtils.jsm");
@@ -18,7 +17,7 @@ content_policy_jscript_actions = ({});
 
 // content policy
 function block_sniff (content_type, content_location) {
-    dumpln("block sniff: " + content_type + " : " + content_location.spec);
+    jsdump("block sniff: " + content_type + " : " + content_location.spec);
     return content_policy_accept;
 }
 
@@ -29,7 +28,7 @@ function block_flash (content_type, content_location) {
                   [content_location.host] || N);
 
     if (action == N)
-        dumpln("blocked content: "+content_type+" : "+content_location.spec);
+        jsdump("blocked content: "+content_type+" : "+content_location.spec);
 
     return action;
 }
@@ -41,7 +40,7 @@ function block_image (content_type, content_location) {
                   [content_location.host] || Y);
 
     if (action == N)
-        dumpln("blocked content: "+content_type+" : "+content_location.spec);
+        jsdump("blocked content: "+content_type+" : "+content_location.spec);
 
     return action;
 }
@@ -55,7 +54,7 @@ function _reload_permissions() {
 // callback function which fills the
 // action-list
 function init_permissions(host, value) {
-    dumpln("Adding: "+host +" : " + value);
+    jsdump("Adding: "+host +" : " + value);
     if (value == 't')
         content_policy_jscript_actions[host] = content_policy_accept;
     else
@@ -63,13 +62,14 @@ function init_permissions(host, value) {
 }
 
 // here we handle the javascript content filtering
-function block_script (content_type, content_location) {
+function block_script (content_type, content_location, request_origin) {
     var Y = content_policy_accept, N = content_policy_reject;
 
     var action = (content_policy_jscript_actions[content_location.host] || N);
+    jsdump(content_type + " : " + content_location.host + " : "+ action + " / " + request_origin.host);
 
     if (action == N)
-        dumpln("blocked JS: "+content_location.spec);
+        jsdump("blocked JS: "+content_location.spec);
 
     return action;
 }
@@ -103,13 +103,10 @@ content_policy_bytype_table.object = block_flash;
 // 15
 //content_policy_bytype_table.media = block_sniff;
 
-
-
-
 /* ---- start of db-part ---- */
 
 function get_permissions(aCallBack) {
-    dumpln("Load content-policy rules");
+    jsdump("Load content-policy rules");
     dbConn = initDB();
     var r = dbConn.createStatement("SELECT host ,allowjs FROM permissions");
 
@@ -125,13 +122,13 @@ function get_permissions(aCallBack) {
         },
 
         handleError: function(aError) {
-            dumpln("Error: " + aError.message);
+            jsdump("Error: " + aError.message);
             return false;
         },
 
         handleCompletion: function(aReason) {
             if (aReason != Components.interfaces.mozIStorageStatementCallback.REASON_FINISHED)
-                dumpln("Query canceled or aborted!");
+                jsdump("Query canceled or aborted!");
             return false;
         }
     });
@@ -140,7 +137,10 @@ function get_permissions(aCallBack) {
 }
 
 function allow_js_host(host) {
-    dumpln("whitelist: " + host);
+    jsdump("whitelist: " + host);
+    if (host == null)
+        return;
+
     dbConn = initDB();
     var r = dbConn.createStatement("INSERT OR REPLACE INTO permissions (host, allowjs) VALUES(:host, 't')");
     r.params.host=host;
@@ -149,7 +149,10 @@ function allow_js_host(host) {
 }
 
 function deny_js_host(host) {
-    dumpln("blacklist: " + host);
+    jsdump("blacklist: " + host);
+    if (host == null)
+        return;
+
     dbConn = initDB();
     var r = dbConn.createStatement("INSERT OR REPLACE INTO permissions (host, allowjs) VALUES(:host, 'f')");
     r.params.host=host;
@@ -159,13 +162,21 @@ function deny_js_host(host) {
 
 function initDB() {
     let file = FileUtils.getFile("ProfD", ["cp_jscript.sqlite"]);
-    let dbConn = Services.storage.openDatabase(file); // Will also create the file if it does not exist
+    let dbConn = Services.storage.openDatabase(file);
 
-    if (!dbConn.tableExists("permissions")) {
-        dumpln("Tables not found");
-        dbConn.executeSimpleSQL("CREATE TABLE permissions (host text unique, allowjs boolean)");
+    if (!dbConn.tableExists("prefs")) {
+        jsdump("Table pref not found");
+        dbConn.executeSimpleSQL("CREATE TABLE prefs (pref TEXT UNIQUE NOT NULL, value TEXT)");
+        var r = dbConn.createStatement("INSERT INTO prefs (pref, value) VALUES (:pref, :value)");
+        r.params.pref="version";
+        r.params.value="0.1";
+        r.executeAsync();
     }
 
+    if (!dbConn.tableExists("permissions")) {
+        jsdump("Tables not found");
+        dbConn.executeSimpleSQL("CREATE TABLE permissions (host TEXT UNIQUE NOT NULL, allowjs BOOLEAN)");
+    }
     return dbConn;
 }
 
@@ -174,6 +185,103 @@ function closeDB(dbConn) {
         dbConn.close()
 }
 /* ---- end of db-part ---- */
+
+function uri2basedomain(aURI) {
+    try {
+        var az = make_uri(aURI);
+        return az.host;
+    } catch (e) {
+        return null;
+    }
+    return aURI;
+}
+
+// ContentPolicy JavaScript completer
+// iterates over javascript resources and shows it's permissions
+function cp_js_completer(B) {
+    var completions = B;
+    var get_string = function (x) x;
+    var get_description = function (x) {
+        x = uri2basedomain(x);
+        var n = content_policy_jscript_actions[x];
+        if (n == 1)
+            return x + ": whitelisted";
+        else if (n == -1)
+            return x + ": blacklisted";
+        else
+            return "";
+        };
+
+    var get_value = function (x) "value: " + x;
+    var get_icon = null;
+    var arr;
+
+    var completer = function (input, pos, conservative) {
+        //dumpln("Mine I: " + input + ", P: "+pos+", C:" + conservative);
+        if (input.length == 0 && conservative)
+            return undefined;
+
+        var words = input.toLowerCase().split(" ");
+
+        var data = arr;
+
+        return {count: data.length,
+                index_of:  function (x) data.indexOf(x),
+                get_string: function (i) get_string(data[i]),
+                get_description : function (i) get_description(data[i]),
+                get_input_state: function (i) [get_string(data[i])],
+                get_value: function (i) (get_value ? get_value(data[i]) : data[i]),
+                get_icon: function (i) (get_icon ? get_icon(data[i]) : null)
+               };
+    };
+
+    completer.refresh = function () {
+        var data = [];
+
+        entries = B.document.getElementsByTagName('script');
+        _unique_scripts = {};
+
+        for (i = 0 ; i < entries.length ; i++)
+        {
+            if (entries[i].src != null) {
+                if (_unique_scripts[entries[i].src])
+                    continue;
+
+                _unique_scripts[entries[i].src] = true;
+                data.push(entries[i].src);
+            }
+        }
+        arr = data;
+    };
+    completer.refresh();
+    return completer;
+}
+
+function cp_js_show (window, message) {
+    host = uri2basedomain(message);
+    if (host in content_policy_jscript_actions) {
+        if (content_policy_jscript_actions[host] == content_policy_accept)
+           deny_js_host(host);
+        else
+            allow_js_host(host);
+    }  else {
+        // default is to whitelist a host
+        // just because I do not permit JS per default
+        allow_js_host(host);
+    }
+    _reload_permissions();
+}
+
+
+
+interactive("cp-js-show",
+            "Show JavaScript content of current buffer with information from content policy DB.",
+            function (I) {
+                echo_message(
+                    I.window,
+                    (yield I.minibuffer.read($prompt = "Toggle CP-JS for: ",
+                                             $completer = xy_comp(I.window.buffers.current))));
+            });
 
 interactive("blacklist-js", "Blacklists current URI for javascript usage.",
             function(I) {
@@ -213,6 +321,10 @@ content_policy_status_widget.prototype = {
             this.view.text = ("[-]");
     }
 };
+
+function abcd(x) {
+    dumpln("x: " + x);
+}
 
 
 /**
