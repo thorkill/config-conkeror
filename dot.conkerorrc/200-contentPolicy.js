@@ -277,10 +277,10 @@ function cp_js_show (window, message) {
 interactive("cp-js-show",
             "Show JavaScript content of current buffer with information from content policy DB.",
             function (I) {
-                echo_message(
+                cp_js_show(
                     I.window,
                     (yield I.minibuffer.read($prompt = "Toggle CP-JS for: ",
-                                             $completer = xy_comp(I.window.buffers.current))));
+                                             $completer = cp_js_completer(I.window.buffers.current))));
             });
 
 interactive("blacklist-js", "Blacklists current URI for javascript usage.",
