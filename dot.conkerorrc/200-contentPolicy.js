@@ -243,13 +243,16 @@ function cp_js_completer(B) {
 
         for (i = 0 ; i < entries.length ; i++)
         {
-            if (entries[i].src != null) {
-                if (_unique_scripts[entries[i].src])
-                    continue;
+            var src = entries[i].src;
+            // this is the case where <script> is embedded into html code
+            if (src == null || src == "")
+                src = B.document.baseURI;
 
-                _unique_scripts[entries[i].src] = true;
-                data.push(entries[i].src);
-            }
+            if (_unique_scripts[src])
+                continue;
+
+            _unique_scripts[src] = true;
+            data.push(src);
         }
         arr = data;
     };
@@ -271,8 +274,6 @@ function cp_js_show (window, message) {
     }
     _reload_permissions();
 }
-
-
 
 interactive("cp-js-show",
             "Show JavaScript content of current buffer with information from content policy DB.",
@@ -321,11 +322,6 @@ content_policy_status_widget.prototype = {
             this.view.text = ("[-]");
     }
 };
-
-function abcd(x) {
-    dumpln("x: " + x);
-}
-
 
 /**
  * Define some hooks
