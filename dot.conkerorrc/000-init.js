@@ -34,7 +34,9 @@ clicks_in_new_buffer_button = 2; //  Now right mouse follows links in new buffer
 
 // cookies
 session_pref("network.cookie.lifetimePolicy", 1);
-session_pref("network.cookie.cookieBehavior", 1);
+// 1 - 3th party not allowed
+// 2 - no cookie storage
+session_pref("network.cookie.cookieBehavior", 2);
 
 function history_clear () {
     var history = Cc["@mozilla.org/browser/nav-history-service;1"]
