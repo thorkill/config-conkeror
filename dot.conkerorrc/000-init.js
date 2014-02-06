@@ -38,16 +38,6 @@ session_pref("network.cookie.lifetimePolicy", 1);
 // 2 - no cookie storage
 session_pref("network.cookie.cookieBehavior", 2);
 
-function history_clear () {
-    var history = Cc["@mozilla.org/browser/nav-history-service;1"]
-            .getService(Ci.nsIBrowserHistory);
-                history.removeAllPages();
-}
-
-interactive("history-clear",
-            "Clear the history.",
-            history_clear);
-
 function org_remember(url, window) {
     var cmd_str = 'emacsclient -c --eval \'(th-org-remember-conkeror "' + url + '")\'';
     if (window != null) {
