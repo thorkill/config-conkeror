@@ -14,9 +14,7 @@ function history_forget_this_host(buffer) {
 }
 
 function history_clear () {
-    var history = Cc["@mozilla.org/browser/nav-history-service;1"]
-            .getService(Ci.nsIBrowserHistory);
-                history.removeAllPages();
+    nav_history_service.removeAllPages();
 }
 
 interactive("history-clear",
