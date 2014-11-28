@@ -17,7 +17,7 @@ content_policy_jscript_actions = ({});
 
 // content policy
 function block_sniff (content_type, content_location) {
-    jsdump("block sniff: " + content_type + " : " + content_location.spec);
+    //jsdump("block sniff: " + content_type + " : " + content_location.spec);
     return content_policy_accept;
 }
 
@@ -27,8 +27,8 @@ function block_flash (content_type, content_location) {
     var action = ({ "homestarrunner.com":Y }
                   [content_location.host] || N);
 
-    if (action == N)
-        jsdump("blocked content: "+content_type+" : "+content_location.spec);
+    //if (action == N)
+    //    jsdump("blocked content: "+content_type+" : "+content_location.spec);
 
     return action;
 }
@@ -39,8 +39,8 @@ function block_image (content_type, content_location) {
     var action = ({ "homestarrunner.com" : N }
                   [content_location.host] || Y);
 
-    if (action == N)
-        jsdump("blocked content: "+content_type+" : "+content_location.spec);
+    //if (action == N)
+    //    jsdump("blocked content: "+content_type+" : "+content_location.spec);
 
     return action;
 }
@@ -54,7 +54,7 @@ function _reload_permissions() {
 // callback function which fills the
 // action-list
 function init_permissions(host, value) {
-    jsdump("Adding: "+host +" : " + value);
+    //jsdump("Adding: "+host +" : " + value);
     if (value == 't')
         content_policy_jscript_actions[host] = content_policy_accept;
     else
@@ -66,10 +66,10 @@ function block_script (content_type, content_location, request_origin) {
     var Y = content_policy_accept, N = content_policy_reject;
 
     var action = (content_policy_jscript_actions[content_location.host] || N);
-    jsdump(content_type + " : " + content_location.host + " : "+ action + " / " + request_origin.host);
+    //jsdump(content_type + " : " + content_location.host + " : "+ action + " / " + request_origin.host);
 
-    if (action == N)
-        jsdump("blocked JS: "+content_location.spec);
+    //if (action == N)
+    //    jsdump("blocked JS: "+content_location.spec);
 
     return action;
 }
@@ -137,7 +137,7 @@ function get_permissions(aCallBack) {
 }
 
 function allow_js_host(host) {
-    jsdump("whitelist: " + host);
+    //jsdump("whitelist: " + host);
     if (host == null)
         return;
 
@@ -149,7 +149,7 @@ function allow_js_host(host) {
 }
 
 function deny_js_host(host) {
-    jsdump("blacklist: " + host);
+    //jsdump("blacklist: " + host);
     if (host == null)
         return;
 
@@ -165,7 +165,7 @@ function initDB() {
     let dbConn = Services.storage.openDatabase(file);
 
     if (!dbConn.tableExists("prefs")) {
-        jsdump("Table pref not found");
+        //jsdump("Table pref not found");
         dbConn.executeSimpleSQL("CREATE TABLE prefs (pref TEXT UNIQUE NOT NULL, value TEXT)");
         var r = dbConn.createStatement("INSERT INTO prefs (pref, value) VALUES (:pref, :value)");
         r.params.pref="version";
@@ -174,7 +174,7 @@ function initDB() {
     }
 
     if (!dbConn.tableExists("permissions")) {
-        jsdump("Tables not found");
+        //jsdump("Tables not found");
         dbConn.executeSimpleSQL("CREATE TABLE permissions (host TEXT UNIQUE NOT NULL, allowjs BOOLEAN)");
     }
     return dbConn;
