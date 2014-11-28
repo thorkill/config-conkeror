@@ -13,6 +13,9 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this,
                                   "LoginManagerContent",
                                   "resource://gre/modules/LoginManagerContent.jsm");
+XPCOMUtils.defineLazyModuleGetter(this,
+                                  "LoginManagerParent",
+                                  "resource://gre/modules/LoginManagerParent.jsm");
 
 define_buffer_local_hook("content_buffer_dom_form_has_password_hook");
 define_buffer_local_hook("content_buffer_dom_auto_complete_hook");
@@ -33,6 +36,8 @@ Cc["@mozilla.org/login-manager;1"].getService(Ci.nsILoginManager);
 //session_pref("nglayout.debug.disable_xul_cache", true);
 //session_pref("nglayout.debug.disable_xul_fastload", true);
 
+LoginManagerParent.init();
+
 add_hook("create_buffer_hook", function (buffer) {
 
         buffer.browser.addEventListener("DOMFormHasPassword", function(event) {
@@ -46,6 +51,11 @@ add_hook("create_buffer_hook", function (buffer) {
         buffer.browser.addEventListener("blur", function(event) {
             content_buffer_dom_auto_complete_hook.run(buffer, event);
         }, true /* captrue */);
+
+        buffer.browser.addEventListener("change", function(event) {
+            content_buffer_dom_auto_complete_hook.run(buffer, event);
+        }, true /* captrue */);
+
 });
 
 add_hook("content_buffer_dom_form_has_password_hook", function(buffer, event) {
