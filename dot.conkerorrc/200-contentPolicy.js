@@ -7,6 +7,7 @@
 */
 
 require("content-policy.js");
+require("completers.js");
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 Components.utils.import("resource://gre/modules/FileUtils.jsm");
@@ -198,10 +199,26 @@ function uri2basedomain(aURI) {
 
 // ContentPolicy JavaScript completer
 // iterates over javascript resources and shows it's permissions
-function cp_js_completer(B) {
-    var completions = B;
-    var get_string = function (x) x;
-    var get_description = function (x) {
+function cp_js_completer (buffer) {
+    keywords(arguments,
+             $completions = [],
+             $get_string = identity,
+             $get_description = constantly(""),
+             $get_icon = null,
+             $get_value = null);
+    this._buffer = buffer;
+    this.completions_src = arguments.$completions;
+    this.get_icon = arguments.$get_icon;
+    this.refresh();
+}
+
+cp_js_completer.prototype = {
+    constructor: cp_js_completer,
+    toString: function () "#<cp_js_completer>",
+    completions_src: null,
+    completions: null,
+    get_string: function (x) { return x },
+    get_description: function (x) {
         x = uri2basedomain(x);
         var n = content_policy_jscript_actions[x];
         if (n == 1)
@@ -210,35 +227,16 @@ function cp_js_completer(B) {
             return x + ": blacklisted";
         else
             return "";
-        };
-
-    var get_value = function (x) "value: " + x;
-    var get_icon = null;
-    var arr;
-
-    var completer = function (input, pos, conservative) {
-        //dumpln("Mine I: " + input + ", P: "+pos+", C:" + conservative);
-        if (input.length == 0 && conservative)
-            return undefined;
-
-        var words = input.toLowerCase().split(" ");
-
-        var data = arr;
-
-        return {count: data.length,
-                index_of:  function (x) data.indexOf(x),
-                get_string: function (i) get_string(data[i]),
-                get_description : function (i) get_description(data[i]),
-                get_input_state: function (i) [get_string(data[i])],
-                get_value: function (i) (get_value ? get_value(data[i]) : data[i]),
-                get_icon: function (i) (get_icon ? get_icon(data[i]) : null)
-               };
-    };
-
-    completer.refresh = function () {
+    },
+    get_icon: null,
+    get_value: function (x) { return "value: " + x},
+    complete: function (input, pos) {
+        return new completions(this, this.completions);
+    },
+    refresh: function () {
         var data = [];
 
-        entries = B.document.getElementsByTagName('script');
+        entries = this._buffer.document.getElementsByTagName('script');
         _unique_scripts = {};
 
         for (i = 0 ; i < entries.length ; i++)
@@ -246,7 +244,7 @@ function cp_js_completer(B) {
             var src = entries[i].src;
             // this is the case where <script> is embedded into html code
             if (src == null || src == "")
-                src = B.document.baseURI;
+                src = this._buffer.document.baseURI;
 
             if (_unique_scripts[src])
                 continue;
@@ -254,17 +252,15 @@ function cp_js_completer(B) {
             _unique_scripts[src] = true;
             data.push(src);
         }
-        arr = data;
-    };
-    completer.refresh();
-    return completer;
-}
+        this.completions = data;
+    }
+};
 
 function cp_js_show (window, message) {
     host = uri2basedomain(message);
     if (host in content_policy_jscript_actions) {
         if (content_policy_jscript_actions[host] == content_policy_accept)
-           deny_js_host(host);
+            deny_js_host(host);
         else
             allow_js_host(host);
     }  else {
@@ -281,7 +277,7 @@ interactive("cp-js-show",
                 cp_js_show(
                     I.window,
                     (yield I.minibuffer.read($prompt = "Toggle CP-JS for: ",
-                                             $completer = cp_js_completer(I.window.buffers.current))));
+                                             $completer = new cp_js_completer(I.window.buffers.current))));
             });
 
 interactive("blacklist-js", "Blacklists current URI for javascript usage.",

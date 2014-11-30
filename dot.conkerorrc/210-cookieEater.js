@@ -66,9 +66,26 @@ function init_cookie_eater(W) {
 add_hook("window_initialize_early_hook", init_cookie_eater);
 
 function ce_completer(B) {
-    var completions = B;
-    var get_string = function (x) x;
-    var get_description = function (x) {
+    keywords(arguments,
+             $completions = [],
+             $get_string = identity,
+             $get_description = constantly(""),
+             $get_icon = null,
+             $get_value = null);
+    this._buffer = buffer;
+    this.completions_src = arguments.$completions;
+    this.get_icon = arguments.$get_icon;
+    this.refresh();
+}
+
+ce_completer.prototype = {
+    constructor: ce_completer,
+    toString: function () "#<ce_completer>",
+    completions_src: null,
+    completions: null,
+
+    get_string: function (x) x,
+    get_description: function (x) {
         perm = pm.testPermission(make_uri("http://" + x), "cookie");
         switch (perm) {
             case 0: return "not defined - default action";
@@ -77,31 +94,16 @@ function ce_completer(B) {
             case 8: return "allowed for session";
         }
         return "here be dragons / perm : " + perm;
-        };
+    },
 
-    var get_value = function (x) "value: " + x;
-    var get_icon = null;
-    var arr;
+    get_value: function (x) {
+        return "value: " + x
+    },
+    complete: function (input, pos) {
+        return new completions(this, this.completions);
+    },
 
-    var completer = function (input, pos, conservative) {
-        //dumpln("Mine I: " + input + ", P: "+pos+", C:" + conservative);
-        if (input.length == 0 && conservative)
-            return undefined;
-
-        var words = input.toLowerCase().split(" ");
-        var data = arr;
-
-        return {count: data.length,
-                index_of:  function (x) data.indexOf(x),
-                get_string: function (i) get_string(data[i]),
-                get_description : function (i) get_description(data[i]),
-                get_input_state: function (i) [get_string(data[i])],
-                get_value: function (i) (get_value ? get_value(data[i]) : data[i]),
-                get_icon: function (i) (get_icon ? get_icon(data[i]) : null)
-               };
-    };
-
-    completer.refresh = function () {
+    refresh: function () {
         let data = [];
         for (i in cookie_eater_accepted_hosts) {
             data.push(i);
@@ -109,10 +111,8 @@ function ce_completer(B) {
         for (i in cookie_eater_rejected_hosts) {
             data.push(i);
         }
-        arr = data;
-    };
-    completer.refresh();
-    return completer;
+        this.completions = data;
+    },
 }
 
 function ce_show (window, host) {
@@ -135,5 +135,5 @@ interactive("ce-show",
                 ce_show(
                     I.window,
                     (yield I.minibuffer.read($prompt = "Toggle Cookie permissions for: ",
-                                             $completer = ce_completer(I.window.buffers.current))));
+                                             $completer = new ce_completer(I.window.buffers.current))));
             });
