@@ -2,19 +2,82 @@
   Simple Content-Policy management for Conkeror.
   It uses mozilla's storage service.
 
-  (C) Copyright 2014 thorkill
+  (C) Copyright 2014-2015 thorkill
   BSD License
 */
 
 require("content-policy.js");
+require("content-buffer.js");
 require("completers.js");
+require("http-request-hook.js");
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 Components.utils.import("resource://gre/modules/FileUtils.jsm");
 
 // runtime copy of the db
 // we need it because contentPolicy.shouldLoad can not be blocked
-content_policy_jscript_actions = ({});
+var content_policy_jscript_actions = ({});
+
+var content_policy_blocked_js = {};
+var content_policy_accepted_js = {};
+
+var csp_debug = false;
+
+function httpHeaderWalker(aBump) {
+    jsdump(aBump);
+}
+var httpRequestObserver =
+    {
+        observe: function(subject, topic, data)
+        {
+            if (csp_debug)
+                jsdump(" observe: " + subject.name + " / " + subject.contentType);
+
+            if (!content_policy_listener.enabled) {
+                return;
+            }
+            if (csp_debug)
+                _dump_obj(subject);
+
+            var httpChannel = subject.QueryInterface(Ci.nsIHttpChannel);
+            if ( httpChannel instanceof Ci.nsIHttpChannel === false ) {
+                return;
+            }
+            if (csp_debug) {
+                _dump_obj(httpChannel);
+                _dump_obj(httpChannel.visitResponseHeaders(httpHeaderWalker));
+            }
+
+            var csp_value = "";
+            // default - block all
+            //csp_value = "default-src 'none';"
+
+            var host = uri2basedomain(subject.name);
+            if (host in content_policy_jscript_actions) {
+                if (content_policy_jscript_actions[host] == content_policy_accept) {
+                    csp_value += " script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";
+                    if (subject.contentType === "application/x-javascript")
+                        content_policy_accepted_js[subject.name] = true;
+                }
+            } else {
+                csp_value += " script-src 'none'; ";
+                if (subject.contentType === "application/x-javascript")
+                    content_policy_blocked_js[subject.name] = true;
+            }
+            //csp_value += "style-src 'self'; "
+            //csp_value += "img-src 'self'; "
+
+            if (csp_debug)
+                jsdump(host + " / " + csp_value);
+
+            httpChannel.setResponseHeader("Content-Security-Policy", csp_value, true);
+        }
+    };
+
+//observer_service.addObserver(httpRequestObserver, "http-on-modify-request", false);
+///observer_service.addObserver(httpRequestObserver, "http-on-opening-request", false);
+observer_service.addObserver(httpRequestObserver, "http-on-examine-response", false);
+
 
 // content policy
 function block_sniff (content_type, content_location) {
@@ -22,9 +85,9 @@ function block_sniff (content_type, content_location) {
     return content_policy_accept;
 }
 
-function block_flash (content_type, content_location) {
-    var Y = content_policy_accept, N = content_policy_reject;
 
+function block_flash (content_type, content_location, request_origin, context, mime_type_guess) {
+    var Y = content_policy_accept, N = content_policy_reject;
     var action = ({ "homestarrunner.com":Y }
                   [content_location.host] || N);
 
@@ -108,7 +171,7 @@ content_policy_bytype_table.object = block_flash;
 
 function get_permissions(aCallBack) {
     jsdump("Load content-policy rules");
-    dbConn = initDB();
+    var dbConn = initDB();
     var r = dbConn.createStatement("SELECT host ,allowjs FROM permissions");
 
     let tempval = r.executeAsync({
@@ -116,8 +179,8 @@ function get_permissions(aCallBack) {
             for(let row = aResultSet.getNextRow();
                 row;
                 row = aResultSet.getNextRow()) {
-                host = row.getResultByName("host");
-                value = row.getResultByName("allowjs");
+                var host = row.getResultByName("host");
+                var value = row.getResultByName("allowjs");
                 aCallBack(host, value);
             }
         },
@@ -236,8 +299,8 @@ cp_js_completer.prototype = {
     refresh: function () {
         var data = [];
 
-        entries = this._buffer.document.getElementsByTagName('script');
-        _unique_scripts = {};
+        var entries = this._buffer.document.getElementsByTagName('script');
+        var _unique_scripts = {};
 
         for (i = 0 ; i < entries.length ; i++)
         {
@@ -252,6 +315,21 @@ cp_js_completer.prototype = {
             _unique_scripts[src] = true;
             data.push(src);
         }
+
+        for (i in content_policy_blocked_js) {
+            if (_unique_scripts[i] || content_policy_jscript_actions[i])
+                continue;
+            _unique_scripts[i] = true;
+            data.push(i + "black");
+        }
+
+        for (i in content_policy_accepted_js) {
+            if (_unique_scripts[i] || content_policy_jscript_actions[i])
+                continue;
+            _unique_scripts[i] = true;
+            data.push(i + "white");
+        }
+
         this.completions = data;
     }
 };
