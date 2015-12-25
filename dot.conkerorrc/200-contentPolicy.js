@@ -26,6 +26,7 @@ var csp_debug = false;
 function httpHeaderWalker(aBump) {
     jsdump(aBump);
 }
+
 var httpRequestObserver =
     {
         observe: function(subject, topic, data)
@@ -78,13 +79,16 @@ var httpRequestObserver =
 ///observer_service.addObserver(httpRequestObserver, "http-on-opening-request", false);
 observer_service.addObserver(httpRequestObserver, "http-on-examine-response", false);
 
-
 // content policy
-function block_sniff (content_type, content_location) {
-    //jsdump("block sniff: " + content_type + " : " + content_location.spec);
+function block_sniff (content_type, content_location, request_origin, context, mime_type_guess) {
+    if (csp_debug) {
+        jsdump("block sniff: " + content_type + " : " + content_location.spec);
+        jsdump("----- context sniff " + content_type + " ----");
+        //_dump_obj(context);
+    }
     return content_policy_accept;
+    //return content_policy_reject;
 }
-
 
 function block_flash (content_type, content_location, request_origin, context, mime_type_guess) {
     var Y = content_policy_accept, N = content_policy_reject;
@@ -126,7 +130,7 @@ function init_permissions(host, value) {
 }
 
 // here we handle the javascript content filtering
-function block_script (content_type, content_location, request_origin) {
+function block_script (content_type, content_location, request_origin, context, mime_type_guess) {
     var Y = content_policy_accept, N = content_policy_reject;
 
     var action = (content_policy_jscript_actions[content_location.host] || N);
@@ -335,7 +339,9 @@ cp_js_completer.prototype = {
 };
 
 function cp_js_show (window, message) {
-    host = uri2basedomain(message);
+    //jsdump("cp_js_show: " + message);
+    var host = uri2basedomain(message);
+
     if (host in content_policy_jscript_actions) {
         if (content_policy_jscript_actions[host] == content_policy_accept)
             deny_js_host(host);
