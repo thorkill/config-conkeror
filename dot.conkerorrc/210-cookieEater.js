@@ -37,7 +37,7 @@ let cookieEater = {
 
     _ce_cookie_changed: function (aSubject, aData) {
         if (aSubject instanceof Components.interfaces.nsICookie) {
-            host = aSubject.host.charAt(0) == "." ? aSubject.host.substring(1, aSubject.host.length) : aSubject.host;
+            var host = aSubject.host.charAt(0) == "." ? aSubject.host.substring(1, aSubject.host.length) : aSubject.host;
             jsdump("cookie accepted for host: " + host);
             if (host in cookie_eater_accepted_hosts)
                 return;
