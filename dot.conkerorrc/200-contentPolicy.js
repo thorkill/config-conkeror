@@ -49,19 +49,19 @@ var httpRequestObserver =
                 _dump_obj(httpChannel.visitResponseHeaders(httpHeaderWalker));
             }
 
-            var csp_value = "";
-            // default - block all
+
+            // default - block all scripts
+            var csp_value = " script-src 'none'; ";
             //csp_value = "default-src 'none';"
 
             var host = uri2basedomain(subject.name);
-            if (host in content_policy_jscript_actions) {
-                if (content_policy_jscript_actions[host] == content_policy_accept) {
-                    csp_value += " script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";
-                    if (subject.contentType === "application/x-javascript")
-                        content_policy_accepted_js[subject.name] = true;
-                }
+
+            if ((host in content_policy_jscript_actions) &&
+                (content_policy_jscript_actions[host] == content_policy_accept) &&
+                (subject.contentType === "application/x-javascript")) {
+                csp_value = "script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";
+                content_policy_accepted_js[subject.name] = true;
             } else {
-                csp_value += " script-src 'none'; ";
                 if (subject.contentType === "application/x-javascript")
                     content_policy_blocked_js[subject.name] = true;
             }
@@ -324,14 +324,14 @@ cp_js_completer.prototype = {
             if (_unique_scripts[i] || content_policy_jscript_actions[i])
                 continue;
             _unique_scripts[i] = true;
-            data.push(i + "black");
+            data.push(i);
         }
 
         for (i in content_policy_accepted_js) {
             if (_unique_scripts[i] || content_policy_jscript_actions[i])
                 continue;
             _unique_scripts[i] = true;
-            data.push(i + "white");
+            data.push(i);
         }
 
         this.completions = data;
