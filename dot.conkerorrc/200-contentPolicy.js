@@ -21,7 +21,10 @@ var content_policy_jscript_actions = ({});
 var content_policy_blocked_js = {};
 var content_policy_accepted_js = {};
 
+let csp_accepted_js = {};
+
 var csp_debug = false;
+var dbConn = initDB();
 
 function httpHeaderWalker(aBump) {
     jsdump(aBump);
@@ -31,39 +34,38 @@ var httpRequestObserver =
     {
         observe: function(subject, topic, data)
         {
-            if (csp_debug)
-                jsdump(" observe: " + subject.name + " / " + subject.contentType);
+            if (!subject)
+                return;
 
             if (!content_policy_listener.enabled) {
                 return;
             }
-            if (csp_debug)
-                _dump_obj(subject);
 
             var httpChannel = subject.QueryInterface(Ci.nsIHttpChannel);
             if ( httpChannel instanceof Ci.nsIHttpChannel === false ) {
                 return;
             }
-            if (csp_debug) {
-                _dump_obj(httpChannel);
-                _dump_obj(httpChannel.visitResponseHeaders(httpHeaderWalker));
-            }
 
+            if (csp_debug)
+                jsdump(" observe: " + subject.name + " / " + subject.contentType + " / " + topic + " / " + subject.isNoCacheResponse());
+
+            if (!subject.contentType in ["application/x-javascript", "text/html", "text/css"])
+                return;
 
             // default - block all scripts
-            var csp_value = " script-src 'none'; ";
+            var csp_value = "script-src 'none';";
             //csp_value = "default-src 'none';"
 
             var host = uri2basedomain(subject.name);
 
-            if ((host in content_policy_jscript_actions) &&
-                (content_policy_jscript_actions[host] == content_policy_accept) &&
-                (subject.contentType === "application/x-javascript")) {
-                csp_value = "script-src 'self' 'unsafe-inline' 'unsafe-eval'; ";
-                content_policy_accepted_js[subject.name] = true;
+            if (host in csp_accepted_js) {
+                csp_value = "script-src 'self' 'unsafe-inline' 'unsafe-eval' ";
+                for(var i in csp_accepted_js[host]) {
+                        csp_value += " " + csp_accepted_js[host][i];
+                    }
+                    csp_value += ";";
             } else {
-                if (subject.contentType === "application/x-javascript")
-                    content_policy_blocked_js[subject.name] = true;
+                content_policy_blocked_js[subject.name] = true;
             }
             //csp_value += "style-src 'self'; "
             //csp_value += "img-src 'self'; "
@@ -76,16 +78,10 @@ var httpRequestObserver =
     };
 
 //observer_service.addObserver(httpRequestObserver, "http-on-modify-request", false);
-///observer_service.addObserver(httpRequestObserver, "http-on-opening-request", false);
 observer_service.addObserver(httpRequestObserver, "http-on-examine-response", false);
 
 // content policy
 function block_sniff (content_type, content_location, request_origin, context, mime_type_guess) {
-    if (csp_debug) {
-        jsdump("block sniff: " + content_type + " : " + content_location.spec);
-        jsdump("----- context sniff " + content_type + " ----");
-        //_dump_obj(context);
-    }
     return content_policy_accept;
     //return content_policy_reject;
 }
@@ -117,6 +113,7 @@ function block_image (content_type, content_location) {
 function _reload_permissions() {
     content_policy_jscript_actions = ({});
     get_permissions(init_permissions);
+    get_csp_permissions(_csp_set_policy);
 }
 
 // callback function which fills the
@@ -145,13 +142,13 @@ function block_script (content_type, content_location, request_origin, context, 
 // 1
 //content_policy_bytype_table.other = block_sniff;
 // 2
-content_policy_bytype_table.script = block_script;
+//content_policy_bytype_table.script = block_script;
 // 3
 //content_policy_bytype_table.image = block_image;
 // 4
 //content_policy_bytype_table.stylesheet = block_sniff;
 // 5
-content_policy_bytype_table.object = block_flash;
+// content_policy_bytype_table.object = block_flash;
 // 6
 //content_policy_bytype_table.document = block_sniff;
 // 7
@@ -175,8 +172,7 @@ content_policy_bytype_table.object = block_flash;
 
 function get_permissions(aCallBack) {
     jsdump("Load content-policy rules");
-    var dbConn = initDB();
-    var r = dbConn.createStatement("SELECT host ,allowjs FROM permissions");
+    var r = dbConn.createStatement("SELECT host, allowjs FROM permissions");
 
     let tempval = r.executeAsync({
         handleResult: function(aResultSet) {
@@ -200,32 +196,96 @@ function get_permissions(aCallBack) {
             return false;
         }
     });
-    closeDB();
+    r.finalize();
+    //closeDB(dbConn);
     return tempval;
 }
 
+function csp_prepare_groups(ctx, host, policy_type) {
+    jsdump("csp_prepare_groups: " + ctx + ", " + host );
+}
+
+function _read_csp_hosts(_csp_set_policy) {
+    jsdump("Load content-security-policy hosts");
+    //var dbConn = initDB();
+    var r = dbConn.createStatement("select * FROM csp_hosts");
+
+    let tempval = r.executeAsync({
+        handleResult: function(aResultSet) {
+            for(let row = aResultSet.getNextRow();
+                row;
+                row = aResultSet.getNextRow()) {
+                var id = row.getResultByName("id");
+                var host = row.getResultByName("host");
+                var shost = row.getResultByName("shost");
+                var policy_type = row.getResultByName("policy_type");
+                _csp_set_policy(id, host, shost, policy_type);
+            }
+        },
+
+        handleError: function(aError) {
+            jsdump("Error: " + aError.message);
+            return false;
+        },
+
+        handleCompletion: function(aReason) {
+            if (aReason != Components.interfaces.mozIStorageStatementCallback.REASON_FINISHED)
+                jsdump("Query canceled or aborted!");
+            return false;
+        }
+    });
+    r.finalize();
+    //closeDB(dbConn);
+    return tempval;
+}
+
+function _csp_set_policy(id, host, shost, pt) {
+    if (!csp_accepted_js[host])
+        csp_accepted_js[host] = [];
+
+    csp_accepted_js[host].push(shost);
+}
+
+function get_csp_permissions(_csp_set_policy) {
+    csp_accepted_js = ({});
+    _read_csp_hosts(_csp_set_policy);
+}
+
+
+function _csp_insert_host(host, shost, pt) {
+    var r = dbConn.createStatement("INSERT OR REPLACE INTO csp_hosts (host,shost, policy_type) VALUES(:host, :shost, :policy_type)");
+    r.params.host=host;
+    r.params.shost=shost;
+    r.params.policy_type=pt;
+    r.executeAsync();
+    r.finalize();
+}
+
+function csp_allow_js_host(host, shost) {
+    jsdump("csp_allow_js_host: " + host + " >-> " + shost);
+    _csp_insert_host(host, shost, 2);
+}
+
 function allow_js_host(host) {
-    //jsdump("whitelist: " + host);
+
     if (host == null)
         return;
 
-    dbConn = initDB();
     var r = dbConn.createStatement("INSERT OR REPLACE INTO permissions (host, allowjs) VALUES(:host, 't')");
     r.params.host=host;
     r.executeAsync();
-    closeDB();
+    r.finalize();
 }
 
 function deny_js_host(host) {
-    //jsdump("blacklist: " + host);
+
     if (host == null)
         return;
 
-    dbConn = initDB();
     var r = dbConn.createStatement("INSERT OR REPLACE INTO permissions (host, allowjs) VALUES(:host, 'f')");
     r.params.host=host;
     r.executeAsync();
-    closeDB();
+    r.finalize();
 }
 
 function initDB() {
@@ -233,24 +293,28 @@ function initDB() {
     let dbConn = Services.storage.openDatabase(file);
 
     if (!dbConn.tableExists("prefs")) {
-        //jsdump("Table pref not found");
         dbConn.executeSimpleSQL("CREATE TABLE prefs (pref TEXT UNIQUE NOT NULL, value TEXT)");
         var r = dbConn.createStatement("INSERT INTO prefs (pref, value) VALUES (:pref, :value)");
         r.params.pref="version";
         r.params.value="0.1";
         r.executeAsync();
+        r.finalize();
     }
 
     if (!dbConn.tableExists("permissions")) {
-        //jsdump("Tables not found");
         dbConn.executeSimpleSQL("CREATE TABLE permissions (host TEXT UNIQUE NOT NULL, allowjs BOOLEAN)");
     }
+
+    if (!dbConn.tableExists("csp_hosts")) {
+        dbConn.executeSimpleSQL("CREATE TABLE csp_hosts (id integer primary key autoincrement, host TEXT NOT NULL, shost TEXT NOT NULL, policy_type INTEGER NOT NULL)");
+    }
+
     return dbConn;
 }
 
 function closeDB(dbConn) {
     if (dbConn)
-        dbConn.close()
+        dbConn.asyncClose()
 }
 /* ---- end of db-part ---- */
 
@@ -355,6 +419,17 @@ function cp_js_show (window, message) {
     _reload_permissions();
 }
 
+function csp_js_show (window, message) {
+    var buffer = window.buffers.current;
+    var host = uri2basedomain(message);
+    var ctxt_host = uri2basedomain(buffer.current_uri);
+    jsdump("csp_js_show: " + message + " / " + ctxt_host + " -> " + host);
+    csp_allow_js_host(ctxt_host, host);
+    _reload_permissions();
+}
+
+
+
 interactive("cp-js-show",
             "Show JavaScript content of current buffer with information from content policy DB.",
             function (I) {
@@ -373,6 +448,15 @@ interactive("blacklist-js", "Blacklists current URI for javascript usage.",
 interactive("whitelist-js", "Whitelists current URI for javascript usage.",
             function(I) {
                 allow_js_host(I.buffer.current_uri.host);
+                _reload_permissions();
+            });
+
+interactive("csp-allow-js", "Whitelists current URI for javascript usage.",
+            function(I) {
+                csp_js_show(
+                    I.window,
+                    (yield I.minibuffer.read($prompt = "CSP-JS in context of " + uri2basedomain(I.window.buffers.current.current_uri) + ": ",
+                                             $completer = new cp_js_completer(I.window.buffers.current))));
                 _reload_permissions();
             });
 
@@ -409,3 +493,4 @@ content_policy_status_widget.prototype = {
 add_hook("content_policy_hook", content_policy_bytype);
 add_hook("mode_line_hook", mode_line_adder(content_policy_status_widget));
 add_hook("init_hook", get_permissions(init_permissions));
+add_hook("init_hook", get_csp_permissions(_csp_set_policy));
