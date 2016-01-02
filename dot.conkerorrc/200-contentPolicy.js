@@ -6,10 +6,12 @@
   BSD License
 */
 
+require("buffer.js");
 require("content-policy.js");
 require("content-buffer.js");
 require("completers.js");
 require("http-request-hook.js");
+require("window.js");
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 Components.utils.import("resource://gre/modules/FileUtils.jsm");
@@ -22,9 +24,12 @@ var content_policy_blocked_js = {};
 var content_policy_accepted_js = {};
 
 let csp_accepted_js = {};
+let csp_rejected_js_by_host = {};
 
-var csp_debug = false;
+var csp_debug = true;
 var dbConn = initDB();
+
+var csp_blacklist = [/\/(plugins|widgets)\/like.php/, /\/(plugins|widgets)\/likebox.php/, /www\.google\-analytics\.com\//, /s\.amazon\-adsystem\.com\//, /facebook\.com\/sharer\.php/];
 
 function httpHeaderWalker(aBump) {
     jsdump(aBump);
@@ -46,17 +51,38 @@ var httpRequestObserver =
                 return;
             }
 
-            if (csp_debug)
-                jsdump(" observe: " + subject.name + " / " + subject.contentType + " / " + topic + " / " + subject.isNoCacheResponse());
+            var window = get_recent_conkeror_window();
+            var ctxt_host = uri2basedomain(window.buffers.current.current_uri);
 
-            if (!subject.contentType in ["application/x-javascript", "text/html", "text/css"])
+            if (!ctxt_host) {
+                _dump_obj(window.buffers.current.current_uri);
+            }
+
+            if (csp_debug)
+                jsdump(" observe: " + ctxt_host + " ->->-> " + subject.name + " / " + subject.contentType + " / " + topic + " / " + subject.isNoCacheResponse());
+
+            var _subjectURI = make_uri(subject.name);
+
+            for (var i in csp_blacklist) {
+                var patt = csp_blacklist[i];
+                if (patt.test(_subjectURI.spec)) {
+                    jsdump("Blocking: " + _subjectURI.spec + " on patter: " + patt);
+                    httpChannel.cancel(Components.results.NS_BINDING_ABORTED);
+                    return;
+                }
+            }
+
+            if (!csp_rejected_js_by_host[ctxt_host])
+                csp_rejected_js_by_host[ctxt_host] = [];
+
+            if ((!subject.contentType != "application/x-javascript") && (subject.contentType != "text/html") && (subject.contentType != "text/css"))
                 return;
 
             // default - block all scripts
             var csp_value = "script-src 'none';";
             //csp_value = "default-src 'none';"
 
-            var host = uri2basedomain(subject.name);
+            var host = _subjectURI.host;
 
             if (host in csp_accepted_js) {
                 csp_value = "script-src 'self' 'unsafe-inline' 'unsafe-eval' ";
@@ -65,7 +91,7 @@ var httpRequestObserver =
                     }
                     csp_value += ";";
             } else {
-                content_policy_blocked_js[subject.name] = true;
+                csp_rejected_js_by_host[ctxt_host].push(host);
             }
             //csp_value += "style-src 'self'; "
             //csp_value += "img-src 'self'; "
@@ -419,6 +445,84 @@ function cp_js_show (window, message) {
     _reload_permissions();
 }
 
+function csp_js_completer (buffer) {
+    keywords(arguments,
+             $completions = [],
+             $get_string = identity,
+             $get_description = constantly(""),
+             $get_icon = null,
+             $get_value = null);
+    this._buffer = buffer;
+    this.completions_src = arguments.$completions;
+    this.get_icon = arguments.$get_icon;
+    this.refresh();
+}
+
+csp_js_completer.prototype = {
+    constructor: csp_js_completer,
+    toString: function () "#<csp_js_completer>",
+    completions_src: null,
+    completions: null,
+    get_string: function (x) { return x },
+    get_description: function (x) {
+        x = uri2basedomain(x);
+        var n = 0;
+        if (n == 1)
+            return x + ": whitelisted";
+        else if (n == -1)
+            return x + ": blacklisted";
+        else
+            return "";
+    },
+    get_icon: null,
+    get_value: function (x) { return "value: " + x},
+    complete: function (input, pos) {
+        return new completions(this, this.completions);
+    },
+    refresh: function () {
+        var data = [];
+
+        var entries = this._buffer.document.getElementsByTagName('script');
+        var _unique_scripts = {};
+
+        for (i = 0 ; i < entries.length ; i++)
+        {
+            var src = entries[i].src;
+            // this is the case where <script> is embedded into html code
+            if (src == null || src == "")
+                src = this._buffer.document.baseURI;
+
+            if (_unique_scripts[src])
+                continue;
+
+            _unique_scripts[src] = true;
+            data.push(src);
+        }
+
+        if (csp_accepted_js[src]) {
+            for (i in csp_accepted_js[src]) {
+                var z = csp_accepted_js[src][i];
+                if (_unique_scripts[z])
+                    continue;
+                _unique_scripts[z] = true;
+                data.push(z);
+            }
+        }
+
+        if (csp_rejected_js_by_host[src]) {
+            for (i in csp_rejected_js_by_host[src]) {
+                var z = csp_rejected_js_by_host[src][i];
+                if (_unique_scripts[z])
+                    continue;
+                _unique_scripts[z] = true;
+                data.push(z);
+            }
+        }
+
+        this.completions = data;
+    }
+};
+
 function csp_js_show (window, message) {
     var buffer = window.buffers.current;
     var host = uri2basedomain(message);
@@ -456,7 +560,7 @@ interactive("csp-allow-js", "Whitelists current URI for javascript usage.",
                 csp_js_show(
                     I.window,
                     (yield I.minibuffer.read($prompt = "CSP-JS in context of " + uri2basedomain(I.window.buffers.current.current_uri) + ": ",
-                                             $completer = new cp_js_completer(I.window.buffers.current))));
+                                             $completer = new csp_js_completer(I.window.buffers.current))));
                 _reload_permissions();
             });
 
@@ -487,6 +591,11 @@ content_policy_status_widget.prototype = {
     }
 };
 
+function csp_init_buffer(B) {
+    jsdump("csp_init_buffer: " + B);
+    _dump_obj(B);
+}
+
 /**
  * Define some hooks
  */
@@ -494,3 +603,4 @@ add_hook("content_policy_hook", content_policy_bytype);
 add_hook("mode_line_hook", mode_line_adder(content_policy_status_widget));
 add_hook("init_hook", get_permissions(init_permissions));
 add_hook("init_hook", get_csp_permissions(_csp_set_policy));
+add_hook("create_buffer_hook", csp_init_buffer);
