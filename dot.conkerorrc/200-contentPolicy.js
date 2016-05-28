@@ -23,8 +23,7 @@ var content_policy_jscript_actions = ({});
 var content_policy_blocked_js = {};
 var content_policy_accepted_js = {};
 
-let csp_accepted_js = {};
-let csp_rejected_js_by_host = {};
+let csp_db_accepted_js = {};
 
 var csp_debug = true;
 var dbConn = initDB();
@@ -52,7 +51,9 @@ var httpRequestObserver =
             }
 
             var window = get_recent_conkeror_window();
-            var ctxt_host = uri2basedomain(window.buffers.current.current_uri);
+            var B = window.buffers.current;
+
+            var ctxt_host = uri2basedomain(B.current_uri);
 
             if (!ctxt_host) {
                 _dump_obj(window.buffers.current.current_uri);
@@ -72,8 +73,8 @@ var httpRequestObserver =
                 }
             }
 
-            if (!csp_rejected_js_by_host[ctxt_host])
-                csp_rejected_js_by_host[ctxt_host] = [];
+            if (!B.csp_rejected_js)
+                B.csp_rejected_js = [];
 
             if ((!subject.contentType != "application/x-javascript") && (subject.contentType != "text/html") && (subject.contentType != "text/css"))
                 return;
@@ -84,14 +85,15 @@ var httpRequestObserver =
 
             var host = _subjectURI.host;
 
-            if (host in csp_accepted_js) {
+            if (host in csp_db_accepted_js) {
                 csp_value = "script-src 'self' 'unsafe-inline' 'unsafe-eval' ";
-                for(var i in csp_accepted_js[host]) {
-                        csp_value += " " + csp_accepted_js[host][i];
-                    }
-                    csp_value += ";";
+                for(var i in csp_db_accepted_js[host]) {
+                    csp_value += " " + csp_db_accepted_js[host][i];
+                    B.csp_accepted_js[csp_db_accepted_js[host][i]] = true;
+                }
+                csp_value += ";";
             } else {
-                csp_rejected_js_by_host[ctxt_host].push(host);
+                B.csp_rejected_js[host] = true;
             }
             //csp_value += "style-src 'self'; "
             //csp_value += "img-src 'self'; "
@@ -266,14 +268,14 @@ function _read_csp_hosts(_csp_set_policy) {
 }
 
 function _csp_set_policy(id, host, shost, pt) {
-    if (!csp_accepted_js[host])
-        csp_accepted_js[host] = [];
+    if (!csp_db_accepted_js[host])
+        csp_db_accepted_js[host] = [];
 
-    csp_accepted_js[host].push(shost);
+    csp_db_accepted_js[host].push(shost);
 }
 
 function get_csp_permissions(_csp_set_policy) {
-    csp_accepted_js = ({});
+    csp_db_accepted_js = ({});
     _read_csp_hosts(_csp_set_policy);
 }
 
@@ -287,9 +289,23 @@ function _csp_insert_host(host, shost, pt) {
     r.finalize();
 }
 
+function _csp_delete_host(host, shost, pt) {
+    var r = dbConn.createStatement("DELETE FROM csp_hosts WHERE host=:host AND shost = :shost AND policy_type = :policy_type");
+    r.params.host=host;
+    r.params.shost=shost;
+    r.params.policy_type=pt;
+    r.executeAsync();
+    r.finalize();
+}
+
 function csp_allow_js_host(host, shost) {
     jsdump("csp_allow_js_host: " + host + " >-> " + shost);
     _csp_insert_host(host, shost, 2);
+}
+
+function csp_block_js_host(host, shost) {
+    jsdump("csp_block_js_host: " + host + " >-> " + shost);
+    _csp_delete_host(host, shost, 2);
 }
 
 function allow_js_host(host) {
@@ -465,12 +481,13 @@ csp_js_completer.prototype = {
     completions: null,
     get_string: function (x) { return x },
     get_description: function (x) {
-        x = uri2basedomain(x);
-        var n = 0;
-        if (n == 1)
+        let x1 = uri2basedomain(x);
+        if (x1)
+            x = x1
+        if (this._buffer.csp_accepted_js[x])
             return x + ": whitelisted";
-        else if (n == -1)
-            return x + ": blacklisted";
+        else if (this._buffer.csp_rejected_js[x])
+            return x + ": rejected";
         else
             return "";
     },
@@ -499,9 +516,8 @@ csp_js_completer.prototype = {
             data.push(src);
         }
 
-        if (csp_accepted_js[src]) {
-            for (i in csp_accepted_js[src]) {
-                var z = csp_accepted_js[src][i];
+        if (this._buffer.csp_accepted_js) {
+            for (var z in this._buffer.csp_accepted_js) {
                 if (_unique_scripts[z])
                     continue;
                 _unique_scripts[z] = true;
@@ -509,9 +525,8 @@ csp_js_completer.prototype = {
             }
         }
 
-        if (csp_rejected_js_by_host[src]) {
-            for (i in csp_rejected_js_by_host[src]) {
-                var z = csp_rejected_js_by_host[src][i];
+        if (this._buffer.csp_rejected_js) {
+            for (var z in this._buffer.csp_rejected_js) {
                 if (_unique_scripts[z])
                     continue;
                 _unique_scripts[z] = true;
@@ -528,11 +543,15 @@ function csp_js_show (window, message) {
     var host = uri2basedomain(message);
     var ctxt_host = uri2basedomain(buffer.current_uri);
     jsdump("csp_js_show: " + message + " / " + ctxt_host + " -> " + host);
-    csp_allow_js_host(ctxt_host, host);
+    if (buffer.csp_accepted_js[host]) {
+        csp_block_js_host(ctxt_host, host);
+    }
+    else
+        csp_allow_js_host(ctxt_host, host);
+    buffer.csp_accepted_js = [];
+    buffer.csp_block_js_host = [];
     _reload_permissions();
 }
-
-
 
 interactive("cp-js-show",
             "Show JavaScript content of current buffer with information from content policy DB.",
@@ -592,8 +611,12 @@ content_policy_status_widget.prototype = {
 };
 
 function csp_init_buffer(B) {
-    jsdump("csp_init_buffer: " + B);
-    _dump_obj(B);
+    if (!B.csp_rejected_js)
+        B.csp_rejected_js = {};
+
+    if (!B.csp_accepted_js)
+        B.csp_accepted_js = {};
+
 }
 
 /**
